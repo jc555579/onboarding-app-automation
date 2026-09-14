@@ -1,19 +1,39 @@
 
-$url = "https://github.com/ip7z/7zip/releases/download/26.03/7z2603-x64.exe"
+function Download-App {
+  param(
+    $Name,
+    $Url,
+    $Output
+  )
 
-# This stores the destination.
-$installer = ".\installers\7zip.exe" #
+  Write-Host "Downloading $Name..."
 
-# Writing instruction for user
-Write-Host "Downloading 7-Zip.exe"
+  # getting the download urlnd storing it to output location 
+  curl.exe -L $Url -o $Output
 
-# Process for downloading the url then put it to installer folder
-curl.exe -L $url -o $installer
-
-# Verify if the file actually downloaded
-if (Test-Path $installer) {
-  Write-Host "7-Zip installer downloaded successfully."
-} 
-else {
-  Write-Host "Download failed."
+  # Checks if downloaded successfully
+  if ($LASTEXITCODE -eq 0 -and (Test-Path $Output)) {
+    Write-Host "$Name downloaded successfully."
+  }
+  else {
+    Write-Host "Failed to download $Name."
+  }
 }
+
+# url for apps
+$chromeUrl = "https://dl.google.com/chrome/install/ChromeStandaloneSetup64.exe"
+$teamViewerUrl = "https://download.teamviewer.com/download/TeamViewer_Setup_x64.exe"
+$anyDeskUrl = "https://anydesk.com/en/downloads/thank-you?dv=win_exe"
+
+
+
+# Calls function
+# Google Chrome
+Download-App "Google Chrome"  $chromeUrl "installers/chrome.exe"
+
+# Team Viewer
+Download-App "TeamViewer" $teamViewerUrl ".\installers\teamviewer.exe"
+
+# Any Desk
+Download-App "AnyDesk" $anydeskUrl ".\installers\anydesk.exe"
+
