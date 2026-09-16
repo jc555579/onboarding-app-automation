@@ -3,6 +3,15 @@ param (
   [string]$ClientName
 )
 
+# Admin is required for this script
+$currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($currentUser)
+
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+  Write-Host "Please run this script as Administrator."
+  exit
+}
+
 # Create installer folder
 $InstallerFolder = ".\installers"
 if (-not (Test-Path $InstallerFolder)) {
@@ -12,7 +21,7 @@ if (-not (Test-Path $InstallerFolder)) {
 # Application URLs for download (it will be used for curl command)
 $chromeUrl = "https://dl.google.com/chrome/install/ChromeStandaloneSetup64.exe"
 $teamViewerUrl = "https://download.teamviewer.com/download/TeamViewer_Setup_x64.exe"
-$anyDeskUrl = "https://anydesk.com/en/downloads/thank-you?dv=win_exe"
+$anyDeskUrl = "https://download.anydesk.com/AnyDesk.exe"
 $acrobatUrl = "https://admdownload.adobe.com/rdcm/installers/live/readerdc64_a_cra_hrma_install.exe?filename=Reader_en_install.exe"
 $libreOfficeUrl = "https://download.documentfoundation.org/libreoffice/stable/26.8.0/win/x86_64/LibreOffice_26.8.0_Win_x86-64.msi"
 $egnyteUrl = "https://egnyte-cdn.egnyte.com/egnytedrive/win/en-us/4.6.1/EgnyteDesktopApp_4.6.1_204.msi"
@@ -20,45 +29,54 @@ $egnyteUrl = "https://egnyte-cdn.egnyte.com/egnytedrive/win/en-us/4.6.1/EgnyteDe
 
 # Application definitions
 $Apps = @{
-
   AnyDesk     = @{
-    Name   = "AnyDesk"
-    Url    = $anyDeskUrl
-    Output = ".\installers\anydesk.exe"
+    Name      = "AnyDesk"
+    Url       = $anyDeskUrl
+    Output    = ".\installers\anydesk.exe"
+    Type      = "EXE"
+    Arguments = '--install "C:\Program Files (x86)\AnyDesk" --silent'
   }
 
   TeamViewer  = @{
-    Name   = "TeamViewer"
-    Url    = $teamViewerUrl
-    Output = ".\installers\teamviewer.exe"
+    Name      = "TeamViewer"
+    Url       = $teamViewerUrl
+    Output    = ".\installers\teamviewer.exe"
+    Type      = "EXE"
+    Arguments = "/silent /install"
   }
 
   Chrome      = @{
-    Name   = "Google Chrome"
-    Url    = $chromeUrl
-    Output = ".\installers\chrome.exe"
+    Name      = "Google Chrome"
+    Url       = $chromeUrl
+    Output    = ".\installers\chrome.exe"
+    Type      = "EXE"
+    Arguments = "/silent /install"
   }
 
   Acrobat     = @{
-    Name   = "Adobe Acrobat"
-    Url    = $acrobatUrl
-    Output = ".\installers\acrobat.exe"
+    Name      = "Adobe Acrobat"
+    Url       = $acrobatUrl
+    Output    = ".\installers\acrobat.exe"
+    Type      = "EXE"
+    Arguments = ""
   }
 
   LibreOffice = @{
-    Name   = "LibreOffice"
-    Url    = $libreOfficeUrl
-    Output = ".\installers\libreoffice.msi"
+    Name      = "LibreOffice"
+    Url       = $libreOfficeUrl
+    Output    = ".\installers\libreoffice.msi"
+    Type      = "MSI"
+    Arguments = "/qn /norestart"
   }
 
   Egnyte      = @{
-    Name   = "Egnyte"
-    Url    = $egnyteUrl
-    Output = ".\installers\egnyte.msi"
+    Name      = "Egnyte"
+    Url       = $egnyteUrl
+    Output    = ".\installers\egnyte.msi"
+    Type      = "MSI"
+    Arguments = "/qn /norestart ED_UPDATE_ON_BOOT=1"
   }
 }
-
-
 
 # Standard applications
 $StandardApps = @(
@@ -104,48 +122,109 @@ function Download-App {
 
   Write-Host "Downloading $Name..."
 
-  # Download the file from the URL
-  # and save it to the output location
   curl.exe -L $Url -o $Output
 
-  # Check if the download was successful
   if ($LASTEXITCODE -eq 0 -and (Test-Path $Output)) {
     Write-Host "$Name downloaded successfully."
+    return $true
   }
   else {
     Write-Host "Failed to download $Name."
+    return $false
+  }
+}
+function Test-AppInstalled {
+  param(
+    $Name
+  )
+
+  $UninstallPaths = @(
+    "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+  )
+
+  foreach ($Path in $UninstallPaths) {
+    $App = Get-ItemProperty $Path -ErrorAction SilentlyContinue |
+    Where-Object { $_.DisplayName -like "*$Name*" }
+
+    if ($App) {
+      return $true
+    }
+  }
+
+  return $false
+}
+function Install-App {
+  param(
+    $Name, $Installer,
+    $Type, $Arguments
+  )
+
+  Write-Host "Installing $Name..."
+  if ($Type -eq "MSI") {
+    $process = Start-Process "msiexec.exe" `
+      -ArgumentList "/i `"$Installer`" $Arguments" `
+      -Wait `
+      -PassThru
+  }
+
+  else {
+    $process = Start-Process $Installer `
+      -ArgumentList $Arguments `
+      -Wait `
+      -PassThru
+  }
+
+  if ($process.ExitCode -eq 0) {
+    Write-Host "$Name installed successfully."
+  }
+  elseif ($process.ExitCode -eq 3010) {
+    Write-Host "$Name installed successfully. Restart required."
+  }
+  else {
+    Write-Host "$Name installation failed. Exit code: $($process.ExitCode)"
   }
 }
 
-
 # Main logic
 if ($ClientName) {
-
   # Check if the client exists
   if ($ClientApps.ContainsKey($ClientName)) {
 
     # Get this client's exact app list
     $AppList = $ClientApps[$ClientName]
-
   }
   else {
-
     Write-Host "Client '$ClientName' was not found."
     exit
   }
 
 }
 else {
-
   # No client specified, use standard applications
   $AppList = $StandardApps
 }
 
 
 # Download all applications in the selected list
-
 foreach ($AppName in $AppList) {
   $App = $Apps[$AppName]
 
-  Download-App $App.Name $App.Url $App.Output
+  if (Test-AppInstalled $App.Name) {
+    Write-Host "$($App.Name) is already installed. Skipping."
+    continue
+  }
+
+  $Downloaded = Download-App $App.Name $App.Url $App.Output
+
+  if ($Downloaded) {
+
+    $InstallerPath = (Resolve-Path $App.Output).Path
+
+    Install-App `
+      $App.Name `
+      $InstallerPath `
+      $App.Type `
+      $App.Arguments
+  }
 }
