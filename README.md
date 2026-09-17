@@ -1,6 +1,6 @@
 # Windows Onboarding App Automation
 
-A PowerShell-based automation script for downloading and installing applications during Windows workstation onboarding.
+A PowerShell-based automation script for downloading, validating, and installing applications during Windows workstation onboarding.
 
 The project is designed to simplify the initial software setup process for IT staff by allowing applications to be managed through a centralized configuration and selected based on the client.
 
@@ -8,16 +8,24 @@ The project is designed to simplify the initial software setup process for IT st
 
 When preparing a newly installed Windows workstation, IT staff may need to install several applications repeatedly.
 
-Instead of manually downloading and installing each application, this project aims to automate the process:
+Instead of manually downloading and installing each application, this project automates the process:
 
 ```text
 Select Client
      ↓
 Get Application List
      ↓
+Check Installed Applications
+     ↓
+Check Existing Installers
+     ↓
 Download Installers
      ↓
+Verify Digital Signatures
+     ↓
 Install Applications
+     ↓
+Log Installation Results
      ↓
 Ready for Onboarding
 ```
@@ -27,28 +35,34 @@ The application configuration is separated from the installation logic, making i
 ## Features
 
 - Download application installers automatically
-- Install applications using PowerShell
 - Support both `.EXE` and `.MSI` installers
+- Install applications using PowerShell
 - Client-specific application configurations
 - Standard application configuration
 - Centralized application definitions
 - Administrator privilege check
-- Automatic creation of the installer directory
+- Automatic creation of required directories
+- Detect already-installed applications
+- Prevent unnecessary duplicate downloads
+- Verify Authenticode digital signatures before installation
+- Support silent installation arguments where supported
 - Installation exit-code handling
+- Installation logging
+- Timestamped user output and log messages
 - Designed to support additional clients and applications
 
 ## Current Applications
 
-| Application | Installer Type | Download | Silent Installation |
-|---|---|---|---|
-| AnyDesk | EXE | Yes | In progress |
-| TeamViewer | EXE | Yes | In progress |
-| Google Chrome | EXE | Yes | In progress |
-| Adobe Acrobat Reader | EXE | Yes | In progress |
-| LibreOffice | MSI | Yes | In Progress |
-| Egnyte | MSI | Yes | In progress |
+| Application          | Installer Type | Download | Installation |
+| -------------------- | -------------- | -------- | ------------ |
+| AnyDesk              | EXE            | Yes      | Configured   |
+| TeamViewer           | EXE            | Yes      | Configured   |
+| Google Chrome        | EXE            | Yes      | Configured   |
+| Adobe Acrobat Reader | EXE            | Yes      | Configured   |
+| LibreOffice          | MSI            | Yes      | Configured   |
+| Egnyte               | MSI            | Yes      | Configured   |
 
-> Installation methods and silent-install arguments are being tested individually for each application.
+> Installation behavior and command-line arguments are configured individually for each application. Some installers may display a graphical interface depending on the vendor's installer behavior.
 
 ## Client Configuration
 
@@ -69,7 +83,7 @@ $ClientApps = @{
 
 Each client has its own exact application list.
 
-This means a client can have:
+This allows a client to have:
 
 - Only a few applications
 - The standard applications
@@ -88,12 +102,12 @@ $ClientApps = @{
         "LibreOffice"
     )
 
-    client2 = @(
+    Client2 = @(
         "Chrome"
         "Acrobat"
     )
 
-    client3 = @(
+    Client3 = @(
         "AnyDesk"
         "Egnyte"
         "LibreOffice"
@@ -113,25 +127,30 @@ $Apps = @{
         Name      = "LibreOffice"
         Url       = $libreOfficeUrl
         Output    = ".\installers\libreoffice.msi"
+        Type      = "MSI"
+        Arguments = "/qn /norestart"
     }
 }
 ```
 
 Each application definition contains:
 
-| Property | Purpose |
-|---|---|
-| `Name` | Display name of the application |
-| `Url` | Download URL |
-| `Output` | Location where the installer is saved |
+| Property    | Purpose                                         |
+| ----------- | ----------------------------------------------- |
+| `Name`      | Display name of the application                 |
+| `Url`       | Download URL                                    |
+| `Output`    | Location where the installer is saved           |
+| `Type`      | Installer type (`EXE` or `MSI`)                 |
+| `Arguments` | Command-line arguments used during installation |
 
-This keeps application data separate from the functions that perform downloading and installation.
+This keeps application data separate from the functions that perform downloading, validation, and installation.
 
 ## Requirements
 
 - Windows 10 or Windows 11
 - PowerShell
 - Internet connection
+- Administrator privileges
 
 ## Usage
 
@@ -164,6 +183,8 @@ For a specific client:
 
 The script retrieves the exact application list configured for that client.
 
+The script must be run with administrator privileges.
+
 ## Project Structure
 
 ```text
@@ -172,30 +193,54 @@ onboarding-app-automation/
 ├── onboarding.ps1
 ├── README.md
 │
-└── installers/
-    ├── anydesk.exe
-    ├── teamviewer.exe
-    ├── chrome.exe
-    ├── acrobat.exe
-    ├── libreoffice.msi
-    └── egnyte.msi
+├── installers/
+│   ├── anydesk.exe
+│   ├── teamviewer.exe
+│   ├── chrome.exe
+│   ├── acrobat.exe
+│   ├── libreoffice.msi
+│   └── egnyte.msi
+│
+└── logs/
+    └── onboarding.log
 ```
 
-The `installers/` directory is created automatically by the script if it does not already exist.
+The `installers/` and `logs/` directories are created automatically by the script if they do not already exist.
 
-Downloaded installers are stored locally in this directory.
+Downloaded installers are stored locally in the `installers/` directory.
+
+Installation activity is recorded in:
+
+```text
+logs/onboarding.log
+```
 
 ## How It Works
 
-### 1. Installer Directory
+### 1. Administrator Check
 
-The script creates the `installers` directory when necessary.
+The script first checks whether PowerShell is running with administrator privileges.
 
-### 2. Application Catalog
+If administrator privileges are not detected, the script stops and asks the user to run it as Administrator.
 
-All supported applications are defined in `$Apps`.
+### 2. Directory Setup
 
-### 3. Client Selection
+The script creates the required directories:
+
+```text
+installers/
+logs/
+```
+
+if they do not already exist.
+
+### 3. Application Catalog
+
+All supported applications are defined in the centralized `$Apps` hashtable.
+
+Each application contains its download URL, installer path, installer type, and installation arguments.
+
+### 4. Client Selection
 
 The script determines which application list to use.
 
@@ -217,27 +262,105 @@ If no client is provided, it uses:
 $StandardApps
 ```
 
-### 4. Download
+### 5. Installed Application Detection
 
-Each application installer is downloaded using `curl.exe`.
+Before downloading anything, the script checks whether the application is already installed.
+
+If the application is detected, the script skips it:
+
+```text
+Application already installed
+        ↓
+      Skip
+```
+
+This prevents unnecessary installation attempts.
+
+### 6. Installer Download
+
+If the application is not installed, the script checks whether its installer already exists locally.
+
+If the installer already exists:
+
+```text
+Installer already exists
+        ↓
+   Skip download
+        ↓
+Use existing installer
+```
+
+Otherwise, the installer is downloaded using `curl.exe`:
 
 ```powershell
 curl.exe -L $Url -o $Output
 ```
 
-### 5. Installation
+This prevents the same installer from being downloaded repeatedly during subsequent runs.
 
-The `Install-App` function determines whether the application uses an MSI or EXE installer.
+### 7. Digital Signature Verification
 
-For MSI applications:
+After downloading an installer, the script checks its Authenticode digital signature:
+
+```powershell
+Get-AuthenticodeSignature
+```
+
+The installer is only allowed to continue to installation when Windows reports a valid signature.
+
+If signature verification fails, installation is skipped.
+
+### 8. Installation
+
+The `Install-App` function determines whether the application uses an `.EXE` or `.MSI` installer.
+
+For MSI applications, the script uses:
 
 ```text
 msiexec.exe
 ```
 
-is used.
-
 For EXE applications, the installer executable is launched directly with its configured arguments.
+
+Example MSI installation:
+
+```text
+msiexec.exe /i installer.msi /qn /norestart
+```
+
+The script waits for the installation process to finish before continuing to the next application.
+
+### 9. Installation Result Handling
+
+The script checks the installer's exit code after installation.
+
+Successful installations are recorded as successful.
+
+Exit code `3010` is treated as a successful installation where a restart is required.
+
+Other non-zero exit codes are reported as installation failures.
+
+### 10. Installation Logging
+
+The script records important events in:
+
+```text
+logs/onboarding.log
+```
+
+Log entries include timestamps and events such as:
+
+```text
+[2026-09-18 02:30:01] ===== Windows Onboarding Started =====
+[2026-09-18 02:30:02] Downloading Google Chrome...
+[2026-09-18 02:30:05] Google Chrome downloaded successfully.
+[2026-09-18 02:30:05] Verifying digital signature for Google Chrome...
+[2026-09-18 02:30:05] Google Chrome signature is valid.
+[2026-09-18 02:30:06] Installing Google Chrome...
+[2026-09-18 02:30:12] Google Chrome installed successfully.
+```
+
+The same messages are displayed in the PowerShell console while the script is running.
 
 ## Development Status
 
@@ -248,23 +371,23 @@ For EXE applications, the installer executable is launched directly with its con
 - [x] Standard application list
 - [x] Client-specific application lists
 - [x] Automatic installer directory creation
+- [x] Automatic log directory creation
 - [x] Application download function
-
-### In Progress
-- [ ] Administrator privilege check
-- [ ] EXE/MSI installer type configuration
-- [ ] Installation function structure
-- [ ] LibreOffice silent installation 
-- [ ] Verify Chrome silent installation
-- [ ] Verify AnyDesk silent installation
-- [ ] Configure Adobe Acrobat silent installation
-- [ ] Configure TeamViewer installation
-- [ ] Configure Egnyte installation
-- [ ] Detect already-installed applications
-- [ ] Prevent unnecessary downloads
-- [ ] Improve installation error handling
-- [ ] Add installation logging
-- [ ] Improve user output/progress messages
+- [x] Administrator privilege check
+- [x] EXE/MSI installer type configuration
+- [x] Installation function structure
+- [x] LibreOffice silent installation
+- [x] Chrome installation configuration
+- [x] AnyDesk installation configuration
+- [ ] Adobe Acrobat Reader installation configuration
+- [x] TeamViewer installation configuration
+- [x] Egnyte installation configuration
+- [x] Already-installed application detection
+- [x] Duplicate-download prevention
+- [x] Digital signature verification
+- [x] Installation exit-code handling
+- [x] Installation logging
+- [x] User output and progress messages
 
 ### Future Improvements
 
@@ -272,11 +395,10 @@ For EXE applications, the installer executable is launched directly with its con
 - Support additional applications
 - Application version management
 - Better installer validation
-- Installation logging
-- Already-installed application detection
 - Optional application installation
 - Configuration separated into an external file
 - Improved error recovery
+- More detailed installation reports
 
 ## Design Approach
 
@@ -298,12 +420,20 @@ The project separates **configuration** from **automation logic**.
                  │                 │
                  └────────┬────────┘
                           ↓
-                   Download-App
+               Check Installed Apps
+                          ↓
+               Check Existing Files
+                          ↓
+                    Download-App
+                          ↓
+                Test-AppSignature
                           ↓
                     Install-App
+                          ↓
+                     Write-Log
 ```
 
-This approach makes the script easier to maintain as the number of clients and applications increases.
+This approach keeps the application configuration separate from the automation logic, making the script easier to maintain as the number of clients and applications increases.
 
 ## Learning Resources
 
@@ -318,10 +448,15 @@ The implementation uses concepts such as:
 - Conditional statements
 - Loops
 - `Start-Process`
+- `curl.exe`
 - `msiexec`
 - Exit codes
+- Windows Registry
+- Authenticode digital signatures
 - Windows administrator privileges
 - Command-line application installation
+- File and directory handling
+- Logging
 
 Official vendor documentation is used when determining supported installation and silent-installation methods for individual applications.
 
@@ -337,6 +472,7 @@ AI assistance was used to:
 - Suggest maintainable configuration patterns
 - Explain Windows installation commands
 - Help investigate application installation methods
+- Review and improve the script structure
 
 The project was tested and adjusted manually to verify that the commands and implementation worked in the intended Windows environment.
 
@@ -344,4 +480,4 @@ The project was tested and adjusted manually to verify that the commands and imp
 
 This project is intended for internal IT onboarding and automation purposes.
 
-Application download URLs, installer behavior, and silent-installation arguments may change when vendors release new versions. Installation methods should therefore be verified before deploying the script in a production environment.
+Application download URLs, installer behavior, application versions, and installation arguments may change when vendors release new versions. Installation methods should therefore be verified before deploying the script in a production environment.
