@@ -18,11 +18,21 @@ if (-not (Test-Path $InstallerFolder)) {
   New-Item -ItemType Directory -Path $InstallerFolder | Out-Null
 }
 
+# Create log folder
+$LogFolder = ".\logs"
+
+if (-not (Test-Path $LogFolder)) {
+  New-Item -ItemType Directory -Path $LogFolder | Out-Null
+}
+
+$LogFile = Join-Path $LogFolder "onboarding.log"
+
 # Application URLs for download (it will be used for curl command)
 $chromeUrl = "https://dl.google.com/chrome/install/ChromeStandaloneSetup64.exe"
 $teamViewerUrl = "https://download.teamviewer.com/download/TeamViewer_Setup_x64.exe"
 $anyDeskUrl = "https://download.anydesk.com/AnyDesk.exe"
 $acrobatUrl = "https://admdownload.adobe.com/rdcm/installers/live/readerdc64_a_cra_hrma_install.exe?filename=Reader_en_install.exe"
+
 $libreOfficeUrl = "https://download.documentfoundation.org/libreoffice/stable/26.8.0/win/x86_64/LibreOffice_26.8.0_Win_x86-64.msi"
 $egnyteUrl = "https://egnyte-cdn.egnyte.com/egnytedrive/win/en-us/4.6.1/EgnyteDesktopApp_4.6.1_204.msi"
 
@@ -42,7 +52,7 @@ $Apps = @{
     Url       = $teamViewerUrl
     Output    = ".\installers\teamviewer.exe"
     Type      = "EXE"
-    Arguments = "/silent /install"
+    Arguments = "/S"
   }
 
   Chrome      = @{
@@ -58,7 +68,7 @@ $Apps = @{
     Url       = $acrobatUrl
     Output    = ".\installers\acrobat.exe"
     Type      = "EXE"
-    Arguments = ""
+    Arguments = "/sAll /rs /rps /msi EULA_ACCEPT=YES"
   }
 
   LibreOffice = @{
@@ -80,8 +90,7 @@ $Apps = @{
 
 # Standard applications
 $StandardApps = @(
-  "AnyDesk"
-  "LibreOffice"
+  "Acrobat"
 )
 
 # Client applications
@@ -89,7 +98,6 @@ $ClientApps = @{
   urbanx = @(
     "AnyDesk"
     "TeamViewer"
-    "Chrome"
     "Acrobat"
     "LibreOffice"
     "Egnyte"
@@ -117,16 +125,22 @@ function Download-App {
     $Output
   )
 
-  Write-Host "Downloading $Name..."
+  # Prevent duplicate downloads
+  if (Test-Path $Output) {
+    Write-Log "$Name installer already exists. Skipping download."
+    return $true
+  }
+
+  Write-Log "Downloading $Name..."
 
   curl.exe -L $Url -o $Output
 
   if ($LASTEXITCODE -eq 0 -and (Test-Path $Output)) {
-    Write-Host "$Name downloaded successfully."
+    Write-Log "$Name downloaded successfully."
     return $true
   }
   else {
-    Write-Host "Failed to download $Name."
+    Write-Log "Failed to download $Name."
     return $false
   }
 }
@@ -164,36 +178,38 @@ function Test-AppSignature {
     $Installer
   )
 
-  Write-Host "Verifying digital signature for $Name..."
+  Write-Log "Verifying digital signature for $Name..."
+
   $Signature = Get-AuthenticodeSignature -FilePath $Installer
 
   if ($Signature.Status -eq "Valid") {
-    Write-Host "$Name signature is valid."
-    Write-Host "Signer: $($Signature.SignerCertificate.Subject)"
+    Write-Log "$Name signature is valid."
+    Write-Log "Signer: $($Signature.SignerCertificate.Subject)"
     return $true
   }
   else {
-    Write-Host "$Name signature verification failed."
-    Write-Host "Signature status: $($Signature.Status)"
-
+    Write-Log "$Name signature verification failed."
+    Write-Log "Signature status: $($Signature.Status)"
     return $false
   }
 }
 
 function Install-App {
   param(
-    $Name, $Installer,
-    $Type, $Arguments
+    $Name,
+    $Installer,
+    $Type,
+    $Arguments
   )
 
-  Write-Host "Installing $Name..."
+  Write-Log "Installing $Name..."
+
   if ($Type -eq "MSI") {
     $process = Start-Process "msiexec.exe" `
       -ArgumentList "/i `"$Installer`" $Arguments" `
       -Wait `
       -PassThru
   }
-
   else {
     $process = Start-Process $Installer `
       -ArgumentList $Arguments `
@@ -202,14 +218,25 @@ function Install-App {
   }
 
   if ($process.ExitCode -eq 0) {
-    Write-Host "$Name installed successfully."
+    Write-Log "$Name installed successfully."
   }
   elseif ($process.ExitCode -eq 3010) {
-    Write-Host "$Name installed successfully. Restart required."
+    Write-Log "$Name installed successfully. Restart required."
   }
   else {
-    Write-Host "$Name installation failed. Exit code: $($process.ExitCode)"
+    Write-Log "$Name installation failed. Exit code: $($process.ExitCode)"
   }
+}
+function Write-Log {
+  param(
+    $Message
+  )
+
+  $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+  $LogMessage = "[$Timestamp] $Message"
+
+  Write-Host $LogMessage
+  Add-Content -Path $LogFile -Value $LogMessage
 }
 
 # Main logic
@@ -221,7 +248,7 @@ if ($ClientName) {
     $AppList = $ClientApps[$ClientName]
   }
   else {
-    Write-Host "Client '$ClientName' was not found."
+    Write-Log "Client '$ClientName' was not found."
     exit
   }
 
@@ -231,6 +258,7 @@ else {
   $AppList = $StandardApps
 }
 
+Write-Log "===== Windows Onboarding Started ====="
 
 # Download all applications in the selected list
 foreach ($AppName in $AppList) {
@@ -238,7 +266,7 @@ foreach ($AppName in $AppList) {
 
   # Check if the application is already installed
   if (Test-AppInstalled $App.Name) {
-    Write-Host "$($App.Name) is already installed. Skipping."
+    Write-Log "$($App.Name) is already installed. Skipping."
     continue
   }
 
@@ -263,7 +291,7 @@ foreach ($AppName in $AppList) {
     else {
       # No installation with an invalid,
       # missing, or otherwise untrusted signature.
-      Write-Host "Skipping installation of $($App.Name) because signature verification failed."
+      Write-Log "Skipping installation of $($App.Name) because signature verification failed."
     }
   }
 }
