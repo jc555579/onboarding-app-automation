@@ -81,9 +81,6 @@ $Apps = @{
 # Standard applications
 $StandardApps = @(
   "AnyDesk"
-  "TeamViewer"
-  "Chrome"
-  "Acrobat"
   "LibreOffice"
 )
 
@@ -154,6 +151,35 @@ function Test-AppInstalled {
 
   return $false
 }
+
+# Verify the digital signature of the downloaded installer.
+#
+# This checks whether Windows considers the Authenticode
+# digital signature valid before allowing installation.
+#
+# If the signature is not valid, installation will be skipped.
+function Test-AppSignature {
+  param(
+    $Name,
+    $Installer
+  )
+
+  Write-Host "Verifying digital signature for $Name..."
+  $Signature = Get-AuthenticodeSignature -FilePath $Installer
+
+  if ($Signature.Status -eq "Valid") {
+    Write-Host "$Name signature is valid."
+    Write-Host "Signer: $($Signature.SignerCertificate.Subject)"
+    return $true
+  }
+  else {
+    Write-Host "$Name signature verification failed."
+    Write-Host "Signature status: $($Signature.Status)"
+
+    return $false
+  }
+}
+
 function Install-App {
   param(
     $Name, $Installer,
@@ -210,21 +236,34 @@ else {
 foreach ($AppName in $AppList) {
   $App = $Apps[$AppName]
 
+  # Check if the application is already installed
   if (Test-AppInstalled $App.Name) {
     Write-Host "$($App.Name) is already installed. Skipping."
     continue
   }
 
+  # Download installer
   $Downloaded = Download-App $App.Name $App.Url $App.Output
-
   if ($Downloaded) {
-
     $InstallerPath = (Resolve-Path $App.Output).Path
 
-    Install-App `
-      $App.Name `
-      $InstallerPath `
-      $App.Type `
-      $App.Arguments
+    # Verify the installer signature AFTER downloading
+    # and BEFORE installing.
+    $SignatureValid = Test-AppSignature $App.Name $InstallerPath
+
+    if ($SignatureValid) {
+      
+      # Only install if the digital signature is valid
+      Install-App `
+        $App.Name `
+        $InstallerPath `
+        $App.Type `
+        $App.Arguments
+    }
+    else {
+      # No installation with an invalid,
+      # missing, or otherwise untrusted signature.
+      Write-Host "Skipping installation of $($App.Name) because signature verification failed."
+    }
   }
 }
