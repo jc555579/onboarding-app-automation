@@ -25,6 +25,10 @@ Verify Digital Signatures
      ↓
 Install Applications
      ↓
+Verify Installation
+     ↓
+Create Desktop Shortcuts
+     ↓
 Log Installation Results
      ↓
 Ready for Onboarding
@@ -47,6 +51,8 @@ The application configuration is separated from the installation logic, making i
 - Verify Authenticode digital signatures before installation
 - Support silent installation arguments where supported
 - Installation exit-code handling
+- Installation verification
+- Automatic desktop shortcut creation for applications that require it
 - Installation logging
 - Timestamped user output and log messages
 - Designed to support additional clients and applications
@@ -57,12 +63,37 @@ The application configuration is separated from the installation logic, making i
 | -------------------- | -------------- | -------- | ------------ |
 | AnyDesk              | EXE            | Yes      | Configured   |
 | TeamViewer           | EXE            | Yes      | Configured   |
-| Google Chrome        | EXE            | Yes      | Configured   |
+| Google Chrome        | MSI            | Yes      | Configured   |
 | Adobe Acrobat Reader | EXE            | Yes      | Configured   |
 | LibreOffice          | MSI            | Yes      | Configured   |
 | Egnyte               | MSI            | Yes      | Configured   |
 
 > Installation behavior and command-line arguments are configured individually for each application. Some installers may display a graphical interface depending on the vendor's installer behavior.
+
+## Desktop Shortcuts
+
+Some applications do not automatically create a desktop shortcut after installation.
+
+The script supports optional desktop shortcut creation through the application configuration.
+
+For example:
+
+```powershell
+AnyDesk = @{
+    Name           = "AnyDesk"
+    Url            = $anyDeskUrl
+    Output         = ".\installers\anydesk.exe"
+    Type           = "EXE"
+    Arguments      = '--install "C:\Program Files (x86)\AnyDesk" --silent'
+    ShortcutTarget = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+}
+```
+
+When `ShortcutTarget` is configured, the script checks whether the target executable exists after installation and creates a desktop shortcut automatically.
+
+This is useful for applications such as AnyDesk when the installer does not create a desktop shortcut automatically.
+
+The shortcut is created on the common Windows desktop so it is available to users on the workstation.
 
 ## Client Configuration
 
@@ -135,15 +166,18 @@ $Apps = @{
 
 Each application definition contains:
 
-| Property    | Purpose                                         |
-| ----------- | ----------------------------------------------- |
-| `Name`      | Display name of the application                 |
-| `Url`       | Download URL                                    |
-| `Output`    | Location where the installer is saved           |
-| `Type`      | Installer type (`EXE` or `MSI`)                 |
-| `Arguments` | Command-line arguments used during installation |
+| Property         | Purpose                                             |
+| ---------------- | --------------------------------------------------- |
+| `Name`           | Display name of the application                     |
+| `Url`            | Download URL                                        |
+| `Output`         | Location where the installer is saved               |
+| `Type`           | Installer type (`EXE` or `MSI`)                     |
+| `Arguments`      | Command-line arguments used during installation     |
+| `ShortcutTarget` | Optional executable path used for shortcut creation |
 
-This keeps application data separate from the functions that perform downloading, validation, and installation.
+`ShortcutTarget` is optional and is only configured when an application requires automatic desktop shortcut creation.
+
+This keeps application data separate from the functions that perform downloading, validation, installation, and shortcut creation.
 
 ## Requirements
 
@@ -196,7 +230,7 @@ onboarding-app-automation/
 ├── installers/
 │   ├── anydesk.exe
 │   ├── teamviewer.exe
-│   ├── chrome.exe
+│   ├── chrome.msi
 │   ├── acrobat.exe
 │   ├── libreoffice.msi
 │   └── egnyte.msi
@@ -239,6 +273,8 @@ if they do not already exist.
 All supported applications are defined in the centralized `$Apps` hashtable.
 
 Each application contains its download URL, installer path, installer type, and installation arguments.
+
+Optional properties, such as `ShortcutTarget`, can also be configured for applications that require desktop shortcuts.
 
 ### 4. Client Selection
 
@@ -340,7 +376,19 @@ Exit code `3010` is treated as a successful installation where a restart is requ
 
 Other non-zero exit codes are reported as installation failures.
 
-### 10. Installation Logging
+The script also verifies whether the application was successfully detected after the installer reports completion.
+
+### 10. Desktop Shortcut Creation
+
+For applications with a configured `ShortcutTarget`, the script checks whether the target executable exists after installation.
+
+If the executable is found, a desktop shortcut is created automatically.
+
+If the executable cannot be found, the shortcut is not created and the event is recorded in the log.
+
+This allows the script to handle applications differently depending on their installer behavior without requiring separate installation functions.
+
+### 11. Installation Logging
 
 The script records important events in:
 
@@ -362,6 +410,23 @@ Log entries include timestamps and events such as:
 
 The same messages are displayed in the PowerShell console while the script is running.
 
+## Known Limitations
+
+### Adobe Acrobat Reader
+
+Adobe Acrobat Reader may take several minutes to complete its installation.
+
+In some cases, the Acrobat installer may finish its visible installation process while the PowerShell script continues waiting for the installer or completion check.
+
+If the script appears to remain stuck after Acrobat has finished installing:
+
+1. Confirm that Acrobat has finished installing.
+2. Press `Ctrl + C` in PowerShell to stop the waiting process.
+3. If there are remaining applications in the selected client configuration, run the onboarding script again if needed.
+4. Applications that are already installed will be detected and skipped.
+
+> **Known limitation:** Acrobat's installer does not always behave like a normal synchronous installer, so the current completion detection may continue waiting even after the visible installation has completed.
+
 ## Development Status
 
 ### Completed
@@ -379,13 +444,15 @@ The same messages are displayed in the PowerShell console while the script is ru
 - [x] LibreOffice silent installation
 - [x] Chrome installation configuration
 - [x] AnyDesk installation configuration
-- [ ] Adobe Acrobat Reader installation configuration
+- [x] Adobe Acrobat Reader installation configuration
 - [x] TeamViewer installation configuration
 - [x] Egnyte installation configuration
 - [x] Already-installed application detection
 - [x] Duplicate-download prevention
 - [x] Digital signature verification
 - [x] Installation exit-code handling
+- [x] Installation verification
+- [x] Desktop shortcut creation
 - [x] Installation logging
 - [x] User output and progress messages
 
@@ -399,6 +466,7 @@ The same messages are displayed in the PowerShell console while the script is ru
 - Configuration separated into an external file
 - Improved error recovery
 - More detailed installation reports
+- Improve Adobe Acrobat installation completion detection
 
 ## Design Approach
 
@@ -430,6 +498,10 @@ The project separates **configuration** from **automation logic**.
                           ↓
                     Install-App
                           ↓
+              Verify Installation
+                          ↓
+             Create Desktop Shortcut
+                          ↓
                      Write-Log
 ```
 
@@ -457,6 +529,7 @@ The implementation uses concepts such as:
 - Command-line application installation
 - File and directory handling
 - Logging
+- Windows shortcut creation
 
 Official vendor documentation is used when determining supported installation and silent-installation methods for individual applications.
 
