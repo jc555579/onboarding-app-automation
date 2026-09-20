@@ -20,7 +20,6 @@ if (-not (Test-Path $InstallerFolder)) {
 
 # Create log folder
 $LogFolder = ".\logs"
-
 if (-not (Test-Path $LogFolder)) {
   New-Item -ItemType Directory -Path $LogFolder | Out-Null
 }
@@ -28,7 +27,7 @@ if (-not (Test-Path $LogFolder)) {
 $LogFile = Join-Path $LogFolder "onboarding.log"
 
 # Application URLs for download (it will be used for curl command)
-$chromeUrl = "https://dl.google.com/chrome/install/ChromeStandaloneSetup64.exe"
+$chromeUrl = "https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi"
 $teamViewerUrl = "https://download.teamviewer.com/download/TeamViewer_Setup_x64.exe"
 $anyDeskUrl = "https://download.anydesk.com/AnyDesk.exe"
 $acrobatUrl = "https://admdownload.adobe.com/rdcm/installers/live/readerdc64_a_cra_hrma_install.exe?filename=Reader_en_install.exe"
@@ -40,11 +39,12 @@ $egnyteUrl = "https://egnyte-cdn.egnyte.com/egnytedrive/win/en-us/4.6.1/EgnyteDe
 # Application definitions
 $Apps = @{
   AnyDesk     = @{
-    Name      = "AnyDesk"
-    Url       = $anyDeskUrl
-    Output    = ".\installers\anydesk.exe"
-    Type      = "EXE"
-    Arguments = '--install "C:\Program Files (x86)\AnyDesk" --silent'
+    Name           = "AnyDesk"
+    Url            = $anyDeskUrl
+    Output         = ".\installers\anydesk.exe"
+    Type           = "EXE"
+    Arguments      = '--install "C:\Program Files (x86)\AnyDesk" --silent'
+    ShortcutTarget = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
   }
 
   TeamViewer  = @{
@@ -59,8 +59,8 @@ $Apps = @{
     Name      = "Google Chrome"
     Url       = $chromeUrl
     Output    = ".\installers\chrome.exe"
-    Type      = "EXE"
-    Arguments = "/silent /install"
+    Type      = "MSI"
+    Arguments = "/qn /norestart"
   }
 
   Acrobat     = @{
@@ -68,7 +68,7 @@ $Apps = @{
     Url       = $acrobatUrl
     Output    = ".\installers\acrobat.exe"
     Type      = "EXE"
-    Arguments = "/sAll /rs /rps /msi EULA_ACCEPT=YES"
+    Arguments = "/sAll /rs /rps /msi /qn EULA_ACCEPT=YES"
   }
 
   LibreOffice = @{
@@ -90,16 +90,22 @@ $Apps = @{
 
 # Standard applications
 $StandardApps = @(
+  "TeamViewer"
+  "Chrome"
+  "LibreOffice"
+  "AnyDesk"  
   "Acrobat"
 )
 
 # Client applications
 $ClientApps = @{
   urbanx = @(
-    "AnyDesk"
     "TeamViewer"
-    "Acrobat"
+    "Chrome"
     "LibreOffice"
+    "Egnyte"
+    "Acrobat"
+    "AnyDesk"
     "Egnyte"
   )
 
@@ -194,39 +200,153 @@ function Test-AppSignature {
   }
 }
 
+
+function Remove-InstallerLockFiles {
+
+  $LockFiles = @(
+    ".\service.conf.lock",
+    ".\system.conf.lock"
+  )
+
+  foreach ($LockFile in $LockFiles) {
+    if (Test-Path $LockFile) {
+      try {
+        Remove-Item $LockFile -Force -ErrorAction Stop
+        Write-Log "Removed temporary lock file: $LockFile"
+      }
+      catch {
+        Write-Log "Could not remove temporary lock file: $LockFile"
+      }
+    }
+  }
+}
+
 function Install-App {
+
   param(
     $Name,
     $Installer,
     $Type,
-    $Arguments
+    $Arguments,
+    $ShortcutTarget
   )
 
-  Write-Log "Installing $Name..."
+  try {
+    Write-Log "Installing $Name..."
 
-  if ($Type -eq "MSI") {
-    $process = Start-Process "msiexec.exe" `
-      -ArgumentList "/i `"$Installer`" $Arguments" `
-      -Wait `
-      -PassThru
-  }
-  else {
-    $process = Start-Process $Installer `
-      -ArgumentList $Arguments `
-      -Wait `
-      -PassThru
+    # Acrobat uses a different completion check because
+    # its installer may launch another process and keep
+    # the original process running after installation finishes.
+    if ($Name -eq "Adobe Acrobat") {
+
+      Start-Process $Installer `
+        -ArgumentList $Arguments
+      Write-Log "Waiting for Adobe Acrobat installation to finish..."
+      $TimeoutSeconds = 600
+      $ElapsedSeconds = 0
+      $CheckInterval = 3
+
+      while ($ElapsedSeconds -lt $TimeoutSeconds) {
+        if (Test-AppInstalled "Adobe Acrobat") {
+          Write-Log "Adobe Acrobat installed successfully."
+          return
+        }
+
+        Start-Sleep -Seconds $CheckInterval
+        $ElapsedSeconds += $CheckInterval
+      }
+
+      Write-Log "Adobe Acrobat installation timed out after $TimeoutSeconds seconds."
+      return
+    }
+
+    # Normal installation process for MSI applications
+    if ($Type -eq "MSI") {
+      $process = Start-Process "msiexec.exe" `
+        -ArgumentList "/i `"$Installer`" $Arguments" `
+        -Wait `
+        -PassThru
+    }
+
+    # Normal installation process for EXE applications
+    else {
+      $process = Start-Process $Installer `
+        -ArgumentList $Arguments `
+        -Wait `
+        -PassThru
+    }
+
+    # Check installation result
+    if ($process.ExitCode -eq 0) {
+
+      if (Test-AppInstalled $Name) {
+        Write-Log "$Name installed successfully."
+
+        if ($ShortcutTarget) {
+          New-DesktopShortcut `
+            -Name $Name `
+            -TargetPath $ShortcutTarget
+        }
+      }
+      else {
+        Write-Log "$Name installer exited successfully, but the application was not detected."
+      }
+    }
+    elseif ($process.ExitCode -eq 3010) {
+
+      if (Test-AppInstalled $Name) {
+        Write-Log "$Name installed successfully. Restart required."
+
+        if ($ShortcutTarget) {
+          New-DesktopShortcut `
+            -Name $Name `
+            -TargetPath $ShortcutTarget
+        }
+      }
+      else {
+        Write-Log "$Name installer requested a restart, but the application was not detected."
+      }
+    }
+    else {
+
+      Write-Log "$Name installation failed. Exit code: $($process.ExitCode)"
+
+    }
+
   }
 
-  if ($process.ExitCode -eq 0) {
-    Write-Log "$Name installed successfully."
-  }
-  elseif ($process.ExitCode -eq 3010) {
-    Write-Log "$Name installed successfully. Restart required."
-  }
-  else {
-    Write-Log "$Name installation failed. Exit code: $($process.ExitCode)"
+  finally {
+    # Remove temporary lock files created in the project directory.
+    Remove-InstallerLockFiles
   }
 }
+
+function New-DesktopShortcut {
+  param(
+    $Name,
+    $TargetPath
+  )
+
+  if (-not (Test-Path $TargetPath)) {
+    Write-Log "$Name executable not found. Desktop shortcut was not created."
+    return
+  }
+
+  $DesktopPath = [Environment]::GetFolderPath("CommonDesktopDirectory")
+  $ShortcutPath = Join-Path $DesktopPath "$Name.lnk"
+
+  $WshShell = New-Object -ComObject WScript.Shell
+  $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
+
+  $Shortcut.TargetPath = $TargetPath
+  $Shortcut.WorkingDirectory = Split-Path $TargetPath
+  $Shortcut.Description = $Name
+
+  $Shortcut.Save()
+
+  Write-Log "$Name desktop shortcut created."
+}
+
 function Write-Log {
   param(
     $Message
@@ -258,10 +378,14 @@ else {
   $AppList = $StandardApps
 }
 
+# Start
 Write-Log "===== Windows Onboarding Started ====="
 
 # Download all applications in the selected list
 foreach ($AppName in $AppList) {
+  Write-Log ""
+  Write-Log "----- $AppName -----"
+  
   $App = $Apps[$AppName]
 
   # Check if the application is already installed
@@ -283,10 +407,11 @@ foreach ($AppName in $AppList) {
       
       # Only install if the digital signature is valid
       Install-App `
-        $App.Name `
-        $InstallerPath `
-        $App.Type `
-        $App.Arguments
+        -Name $App.Name `
+        -Installer $InstallerPath `
+        -Type $App.Type `
+        -Arguments $App.Arguments `
+        -ShortcutTarget $App.ShortcutTarget
     }
     else {
       # No installation with an invalid,
