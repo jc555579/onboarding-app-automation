@@ -1,0 +1,62 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Package
+    Name="Onboarding App Automation"
+    Manufacturer="Shore360"
+    Version="1.0.0.0"
+    UpgradeCode="fa8d0c96-7101-4b2d-ac3d-b82f2fc88384">
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+
+      <Directory
+        Id="INSTALLFOLDER"
+        Name="OnboardingAppAutomation">
+
+        <Component Id="OnboardingScriptComponent">
+
+          <File
+            Id="OnboardingScript"
+            Source="onboarding.ps1"
+            KeyPath="yes" />
+
+        </Component>
+
+      </Directory>
+
+    </StandardDirectory>
+
+    <Feature Id="MainFeature">
+
+      <ComponentRef Id="OnboardingScriptComponent" />
+
+    </Feature>
+
+    <!-- Prepare the PowerShell command -->
+
+    <SetProperty
+      Id="RunOnboardingScript"
+      Value="&quot;powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[#OnboardingScript]&quot;"
+      Before="RunOnboardingScript"
+      Sequence="execute" />
+
+    <!-- Run onboarding.ps1 silently as SYSTEM -->
+
+    <CustomAction
+      Id="RunOnboardingScript"
+      BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+      DllEntry="WixQuietExec"
+      Execute="deferred"
+      Impersonate="no"
+      Return="check" />
+
+    <InstallExecuteSequence>
+
+      <Custom
+        Action="RunOnboardingScript"
+        After="InstallFiles" />
+
+    </InstallExecuteSequence>
+
+  </Package>
+
+</Wix>

@@ -1,8 +1,10 @@
 # Windows Onboarding App Automation
 
-A PowerShell-based automation script for downloading, validating, and installing applications during Windows workstation onboarding.
+A PowerShell-based automation project for downloading, validating, and installing applications during Windows workstation onboarding.
 
 The project is designed to simplify the initial software setup process for IT staff by allowing applications to be managed through a centralized configuration and selected based on the client.
+
+The PowerShell script contains the onboarding automation logic, while a WiX Toolset configuration can package the script into an `.msi` installer for deployment through endpoint-management tools such as Atera.
 
 ## Overview
 
@@ -55,6 +57,7 @@ The application configuration is separated from the installation logic, making i
 - Automatic desktop shortcut creation for applications that require it
 - Installation logging
 - Timestamped user output and log messages
+- WiX-based MSI packaging for deployment
 - Designed to support additional clients and applications
 
 ## Current Applications
@@ -68,7 +71,7 @@ The application configuration is separated from the installation logic, making i
 | LibreOffice          | MSI            | Yes      | Configured   |
 | Egnyte               | MSI            | Yes      | Configured   |
 
-> Installation behavior and command-line arguments are configured individually for each application. Some installers may display a graphical interface depending on the vendor's installer behavior.
+> Installation behavior and command-line arguments are configured individually for each application. Some installers may display a graphical interface or take longer to complete depending on the vendor's installer behavior.
 
 ## Desktop Shortcuts
 
@@ -82,7 +85,7 @@ For example:
 AnyDesk = @{
     Name           = "AnyDesk"
     Url            = $anyDeskUrl
-    Output         = ".\installers\anydesk.exe"
+    Output         = Join-Path $InstallerFolder "anydesk.exe"
     Type           = "EXE"
     Arguments      = '--install "C:\Program Files (x86)\AnyDesk" --silent'
     ShortcutTarget = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
@@ -90,8 +93,6 @@ AnyDesk = @{
 ```
 
 When `ShortcutTarget` is configured, the script checks whether the target executable exists after installation and creates a desktop shortcut automatically.
-
-This is useful for applications such as AnyDesk when the installer does not create a desktop shortcut automatically.
 
 The shortcut is created on the common Windows desktop so it is available to users on the workstation.
 
@@ -157,7 +158,7 @@ $Apps = @{
     LibreOffice = @{
         Name      = "LibreOffice"
         Url       = $libreOfficeUrl
-        Output    = ".\installers\libreoffice.msi"
+        Output    = Join-Path $InstallerFolder "libreoffice.msi"
         Type      = "MSI"
         Arguments = "/qn /norestart"
     }
@@ -177,27 +178,58 @@ Each application definition contains:
 
 `ShortcutTarget` is optional and is only configured when an application requires automatic desktop shortcut creation.
 
-This keeps application data separate from the functions that perform downloading, validation, installation, and shortcut creation.
+The script uses `$PSScriptRoot` to create paths relative to the location of the PowerShell script. This allows the script to work correctly when launched from different working directories, including when executed from an installed MSI package.
 
 ## Requirements
+
+### Direct PowerShell execution
 
 - Windows 10 or Windows 11
 - PowerShell
 - Internet connection
 - Administrator privileges
 
+### MSI packaging
+
+- Windows 10 or Windows 11
+- WiX Toolset 6
+- WiX Toolset Util extension (`WixToolset.Util.wixext`)
+- Administrator privileges for MSI testing
+
+The WiX Util extension is required because the MSI package uses `WixQuietExec` to execute the PowerShell onboarding script during MSI installation.
+
+Install the required WiX Util extension:
+
+```powershell
+wix extension add -g WixToolset.Util.wixext/6.0.0
+```
+
+Verify the WiX installation:
+
+```powershell
+wix --version
+```
+
+### MSI deployment
+
+- Windows 10 or Windows 11
+- Generated `.msi` package
+- Administrator/System execution context
+- Internet connection for downloading application installers
+- An endpoint-management platform such as Atera
+
 ## Usage
 
-### 1. Clone the repository
+### Option 1: Run the PowerShell script directly
+
+Clone the repository:
 
 ```powershell
 git clone <repository-url>
 cd onboarding-app-automation
 ```
 
-### 2. Run the script
-
-Without specifying a client:
+Run the script:
 
 ```powershell
 .\onboarding.ps1
@@ -219,21 +251,75 @@ The script retrieves the exact application list configured for that client.
 
 The script must be run with administrator privileges.
 
+### Option 2: Build the MSI package
+
+The PowerShell script can be packaged into an MSI using WiX Toolset.
+
+The WiX source file is:
+
+```text
+Package.wxs
+```
+
+Build the MSI:
+
+```powershell
+wix build Package.wxs -arch x64 -ext WixToolset.Util.wixext -o onboarding.msi
+```
+
+The resulting file:
+
+```text
+onboarding.msi
+```
+
+is the deployment package.
+
+The MSI installs the PowerShell script and executes it as part of the installation process.
+
+This allows the onboarding automation to be deployed through endpoint-management software such as Atera.
+
+### MSI deployment workflow
+
+```text
+onboarding.ps1
+      │
+      ↓
+Package.wxs
+      │
+      ↓
+WiX Toolset + Util Extension
+      │
+      ↓
+onboarding.msi
+      │
+      ↓
+Endpoint Management
+      │
+      ↓
+Windows Workstation
+      │
+      ↓
+PowerShell Onboarding Script
+      │
+      ↓
+Application Installation
+```
+
+The MSI is therefore the deployment wrapper, while `onboarding.ps1` remains the main automation program.
+
 ## Project Structure
 
 ```text
 onboarding-app-automation/
 │
 ├── onboarding.ps1
+├── Package.wxs
 ├── README.md
+├── .gitignore
 │
 ├── installers/
-│   ├── anydesk.exe
-│   ├── teamviewer.exe
-│   ├── chrome.msi
-│   ├── acrobat.exe
-│   ├── libreoffice.msi
-│   └── egnyte.msi
+│   └── downloaded installers are created automatically
 │
 └── logs/
     └── onboarding.log
@@ -248,6 +334,8 @@ Installation activity is recorded in:
 ```text
 logs/onboarding.log
 ```
+
+Generated build and test files such as the MSI package, WiX symbols, CAB files, MSI test logs, and local WiX files should not be committed to the source repository.
 
 ## How It Works
 
@@ -267,6 +355,8 @@ logs/
 ```
 
 if they do not already exist.
+
+The directories are created relative to the script location using `$PSScriptRoot`.
 
 ### 3. Application Catalog
 
@@ -346,6 +436,14 @@ The installer is only allowed to continue to installation when Windows reports a
 
 If signature verification fails, installation is skipped.
 
+Example log output:
+
+```text
+Verifying digital signature for LibreOffice...
+LibreOffice signature is valid.
+Signer: E=info@documentfoundation.org, CN=The Document Foundation...
+```
+
 ### 8. Installation
 
 The `Install-App` function determines whether the application uses an `.EXE` or `.MSI` installer.
@@ -364,7 +462,7 @@ Example MSI installation:
 msiexec.exe /i installer.msi /qn /norestart
 ```
 
-The script waits for the installation process to finish before continuing to the next application.
+The script waits for the installation process to finish before continuing to the next application, with application-specific handling where required.
 
 ### 9. Installation Result Handling
 
@@ -399,13 +497,13 @@ logs/onboarding.log
 Log entries include timestamps and events such as:
 
 ```text
-[2026-09-18 02:30:01] ===== Windows Onboarding Started =====
-[2026-09-18 02:30:02] Downloading Google Chrome...
-[2026-09-18 02:30:05] Google Chrome downloaded successfully.
-[2026-09-18 02:30:05] Verifying digital signature for Google Chrome...
-[2026-09-18 02:30:05] Google Chrome signature is valid.
-[2026-09-18 02:30:06] Installing Google Chrome...
-[2026-09-18 02:30:12] Google Chrome installed successfully.
+[2026-09-23 02:07:01] ===== Windows Onboarding Started =====
+[2026-09-23 02:07:01] Downloading TeamViewer...
+[2026-09-23 02:07:08] TeamViewer downloaded successfully.
+[2026-09-23 02:07:08] Verifying digital signature for TeamViewer...
+[2026-09-23 02:07:10] TeamViewer signature is valid.
+[2026-09-23 02:07:10] Installing TeamViewer...
+[2026-09-23 02:07:43] TeamViewer installed successfully.
 ```
 
 The same messages are displayed in the PowerShell console while the script is running.
@@ -414,18 +512,24 @@ The same messages are displayed in the PowerShell console while the script is ru
 
 ### Adobe Acrobat Reader
 
-Adobe Acrobat Reader may take several minutes to complete its installation.
+Adobe Acrobat Reader may take significantly longer to complete its installation than the other applications.
 
-In some cases, the Acrobat installer may finish its visible installation process while the PowerShell script continues waiting for the installer or completion check.
+The installer may display a graphical installation interface and may continue performing installation tasks after the visible progress reaches a high percentage.
 
-If the script appears to remain stuck after Acrobat has finished installing:
+The current script allows up to **600 seconds (10 minutes)** for Acrobat installation completion detection.
 
-1. Confirm that Acrobat has finished installing.
-2. Press `Ctrl + C` in PowerShell to stop the waiting process.
-3. If there are remaining applications in the selected client configuration, run the onboarding script again if needed.
-4. Applications that are already installed will be detected and skipped.
+If the installation does not complete within the configured timeout, the script records the timeout and continues to the next application.
 
-> **Known limitation:** Acrobat's installer does not always behave like a normal synchronous installer, so the current completion detection may continue waiting even after the visible installation has completed.
+Example:
+
+```text
+Waiting for Adobe Acrobat installation to finish...
+Adobe Acrobat installation timed out after 600 seconds.
+```
+
+The Acrobat installer should therefore be validated separately when changes are made to the application version, installer source, or installation arguments.
+
+> **Known limitation:** Adobe Acrobat's installer does not always behave like a normal synchronous installer. Its visible progress and underlying installation process may not finish at the same time.
 
 ## Development Status
 
@@ -455,6 +559,10 @@ If the script appears to remain stuck after Acrobat has finished installing:
 - [x] Desktop shortcut creation
 - [x] Installation logging
 - [x] User output and progress messages
+- [x] WiX MSI packaging
+- [x] WiX Util extension integration
+- [x] MSI execution of the PowerShell onboarding script
+- [x] Local MSI installation testing
 
 ### Future Improvements
 
@@ -467,6 +575,8 @@ If the script appears to remain stuck after Acrobat has finished installing:
 - Improved error recovery
 - More detailed installation reports
 - Improve Adobe Acrobat installation completion detection
+- Improve MSI client-argument handling
+- Further testing through endpoint-management deployment
 
 ## Design Approach
 
@@ -505,7 +615,28 @@ The project separates **configuration** from **automation logic**.
                      Write-Log
 ```
 
-This approach keeps the application configuration separate from the automation logic, making the script easier to maintain as the number of clients and applications increases.
+For deployment, the PowerShell automation can be wrapped inside an MSI:
+
+```text
+             onboarding.ps1
+                    │
+                    ↓
+               Package.wxs
+                    │
+                    ↓
+              WiX Toolset
+                    │
+                    ↓
+              onboarding.msi
+                    │
+                    ↓
+          Endpoint Management Tool
+                    │
+                    ↓
+             Windows Workstation
+```
+
+This approach separates the automation logic from the deployment package while allowing the same PowerShell script to be tested directly during development.
 
 ## Learning Resources
 
@@ -530,6 +661,9 @@ The implementation uses concepts such as:
 - File and directory handling
 - Logging
 - Windows shortcut creation
+- WiX Toolset
+- WiX Toolset Util extension
+- MSI packaging
 
 Official vendor documentation is used when determining supported installation and silent-installation methods for individual applications.
 
@@ -546,6 +680,7 @@ AI assistance was used to:
 - Explain Windows installation commands
 - Help investigate application installation methods
 - Review and improve the script structure
+- Assist with MSI packaging concepts
 
 The project was tested and adjusted manually to verify that the commands and implementation worked in the intended Windows environment.
 

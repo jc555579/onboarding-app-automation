@@ -1,2 +1,16 @@
-/installers
-/logs
+# WiX local files
+.wix/
+
+# Build artifacts
+onboarding.msi
+*.wixpdb
+*.cab
+
+# MSI test logs
+msi-test.log
+
+# Generated application installers
+installers/
+
+# Generated onboarding logs
+logs/
