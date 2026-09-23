@@ -31,21 +31,39 @@
 
     </Feature>
 
+    <!--
+        CLIENTNAME is an MSI property.
+
+        Example:
+        msiexec /i onboarding.msi /qn CLIENTNAME=urbanx
+
+        If CLIENTNAME is empty, onboarding.ps1
+        will use the standard applications.
+    -->
+
+    <Property Id="CLIENTNAME" Secure="yes" />
+
     <!-- Prepare the PowerShell command -->
 
     <SetProperty
       Id="RunOnboardingScript"
-      Value="&quot;powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[#OnboardingScript]&quot;"
+      Value="&quot;powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[#OnboardingScript]&quot; &quot;[CLIENTNAME]&quot;"
       Before="RunOnboardingScript"
       Sequence="execute" />
 
-    <!-- Run onboarding.ps1 silently as SYSTEM -->
+    <!--
+        Run onboarding.ps1 AFTER the MSI installation
+        has successfully completed.
+
+        This prevents the application's MSI installers
+        from becoming nested MSI installations.
+    -->
 
     <CustomAction
       Id="RunOnboardingScript"
       BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
       DllEntry="WixQuietExec"
-      Execute="deferred"
+      Execute="commit"
       Impersonate="no"
       Return="check" />
 

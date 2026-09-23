@@ -98,9 +98,6 @@ $Apps = @{
 # Standard applications
 $StandardApps = @(
   "TeamViewer"
-  "Chrome"
-  "LibreOffice"
-  "Acrobat"
   "AnyDesk"
 )
 
