@@ -2,9 +2,11 @@
 
 A PowerShell-based automation project for downloading, validating, and installing applications during Windows workstation onboarding.
 
-The project is designed to simplify the initial software setup process for IT staff by allowing applications to be managed through a centralized configuration and selected based on the client.
+The project is designed to simplify the initial software setup process for IT staff by allowing applications to be managed through a centralized application configuration and selected based on the client.
 
-The PowerShell script contains the onboarding automation logic, while a WiX Toolset configuration can package the script into an `.msi` installer for deployment through endpoint-management tools such as Atera.
+The PowerShell script contains the main onboarding automation logic, while a WiX Toolset configuration packages the script into an `.msi` deployment package for use with endpoint-management platforms such as Atera.
+
+---
 
 ## Overview
 
@@ -36,29 +38,37 @@ Log Installation Results
 Ready for Onboarding
 ```
 
-The application configuration is separated from the installation logic, making it easier to add new applications and clients without creating additional installation functions.
+Application definitions are centralized in the `$Apps` hashtable, while `$StandardApps` and `$ClientApps` determine which applications should be installed for a particular workstation.
+
+This separates application configuration from the core installation functions, making it easier to add or modify applications and client configurations without creating separate installation functions for each application.
+
+---
 
 ## Features
 
-- Download application installers automatically
-- Support both `.EXE` and `.MSI` installers
-- Install applications using PowerShell
-- Client-specific application configurations
-- Standard application configuration
-- Centralized application definitions
-- Administrator privilege check
-- Automatic creation of required directories
-- Detect already-installed applications
-- Prevent unnecessary duplicate downloads
-- Verify Authenticode digital signatures before installation
-- Support silent installation arguments where supported
-- Installation exit-code handling
-- Installation verification
-- Automatic desktop shortcut creation for applications that require it
-- Installation logging
-- Timestamped user output and log messages
-- WiX-based MSI packaging for deployment
-- Designed to support additional clients and applications
+* Download application installers automatically
+* Support both `.EXE` and `.MSI` installers
+* Install applications using PowerShell
+* Standard application configuration
+* Client-specific application configurations
+* Centralized application definitions
+* Administrator privilege check
+* Automatic creation of required directories
+* Detect already-installed applications
+* Prevent unnecessary duplicate downloads
+* Verify Authenticode digital signatures before installation
+* Support silent installation arguments where supported
+* Installation exit-code handling
+* Installation verification
+* Automatic desktop shortcut creation for applications that require it
+* Installation logging
+* Timestamped console and log messages
+* WiX-based MSI packaging
+* MSI deployment through endpoint-management platforms
+* Client selection through an MSI property
+* Designed to support additional clients and applications
+
+---
 
 ## Current Applications
 
@@ -71,7 +81,11 @@ The application configuration is separated from the installation logic, making i
 | LibreOffice          | MSI            | Yes      | Configured   |
 | Egnyte               | MSI            | Yes      | Configured   |
 
-> Installation behavior and command-line arguments are configured individually for each application. Some installers may display a graphical interface or take longer to complete depending on the vendor's installer behavior.
+Installation behavior and command-line arguments are configured individually for each application.
+
+Some installers may behave differently depending on the vendor's installer implementation. For example, certain installers may take longer to complete or may require application-specific completion detection.
+
+---
 
 ## Desktop Shortcuts
 
@@ -96,39 +110,53 @@ When `ShortcutTarget` is configured, the script checks whether the target execut
 
 The shortcut is created on the common Windows desktop so it is available to users on the workstation.
 
+---
+
 ## Client Configuration
 
-Applications are managed through client-specific lists.
+Applications are managed through client-specific application lists.
 
 For example:
 
 ```powershell
 $ClientApps = @{
     clientName = @(
-        "AnyDesk"
         "TeamViewer"
         "Chrome"
+        "LibreOffice"
         "Egnyte"
+        "Acrobat"
+        "AnyDesk"
     )
 }
 ```
 
-Each client has its own exact application list.
+The project also contains a standard application list:
 
-This allows a client to have:
+```powershell
+$StandardApps = @(
+    "AnyDesk"
+)
+```
 
-- Only a few applications
-- The standard applications
-- Standard applications plus additional applications
-- A completely different application combination
+When a client name is provided, the script uses the application list configured for that client.
 
-Adding a new client does not require creating another installation function.
+When no client name is provided, the script uses the standard application list.
+
+This allows different clients to have:
+
+* Only a few applications
+* A standard set of applications
+* Standard applications plus additional applications
+* A completely different application combination
+
+Adding another client only requires adding another application list to `$ClientApps`.
 
 Example:
 
 ```powershell
 $ClientApps = @{
-    Client1 = @(
+    clientName = @(
         "AnyDesk"
         "Chrome"
         "LibreOffice"
@@ -146,6 +174,10 @@ $ClientApps = @{
     )
 }
 ```
+
+The installation functions do not need to be duplicated for each client.
+
+---
 
 ## Application Configuration
 
@@ -165,7 +197,7 @@ $Apps = @{
 }
 ```
 
-Each application definition contains:
+Each application definition contains properties such as:
 
 | Property         | Purpose                                             |
 | ---------------- | --------------------------------------------------- |
@@ -178,27 +210,35 @@ Each application definition contains:
 
 `ShortcutTarget` is optional and is only configured when an application requires automatic desktop shortcut creation.
 
-The script uses `$PSScriptRoot` to create paths relative to the location of the PowerShell script. This allows the script to work correctly when launched from different working directories, including when executed from an installed MSI package.
+The script uses `$PSScriptRoot` to create paths relative to the location of the PowerShell script. This allows the script to work correctly when launched from different working directories, including when executed from the installed MSI location.
+
+---
 
 ## Requirements
 
-### Direct PowerShell execution
+### Direct PowerShell Execution
 
-- Windows 10 or Windows 11
-- PowerShell
-- Internet connection
-- Administrator privileges
+* Windows 10 or Windows 11
+* Windows PowerShell
+* Internet connection
+* Administrator privileges
 
-### MSI packaging
+### MSI Packaging
 
-- Windows 10 or Windows 11
-- WiX Toolset 6
-- WiX Toolset Util extension (`WixToolset.Util.wixext`)
-- Administrator privileges for MSI testing
+The MSI package is built during development using:
 
-The WiX Util extension is required because the MSI package uses `WixQuietExec` to execute the PowerShell onboarding script during MSI installation.
+* Windows 10 or Windows 11
+* WiX Toolset 6
+* WiX Toolset Util extension
+* .NET SDK/runtime required by the WiX Toolset installation
 
-Install the required WiX Util extension:
+Install the WiX Toolset 6 global tool:
+
+```powershell
+dotnet tool install --global wix --version 6.0.0
+```
+
+Install the WiX Toolset Util extension:
 
 ```powershell
 wix extension add -g WixToolset.Util.wixext/6.0.0
@@ -210,22 +250,31 @@ Verify the WiX installation:
 wix --version
 ```
 
-### MSI deployment
+The WiX Toolset and extension are development/build requirements. They are **not required on the target workstation simply to run the generated `onboarding.msi`**.
 
-- Windows 10 or Windows 11
-- Generated `.msi` package
-- Administrator/System execution context
-- Internet connection for downloading application installers
-- An endpoint-management platform such as Atera
+### MSI Deployment
+
+The generated MSI requires:
+
+* Windows 10 or Windows 11
+* The generated `onboarding.msi`
+* Administrator or SYSTEM execution context
+* Internet connection for downloading application installers
+* An endpoint-management platform such as Atera for remote deployment
+
+The target workstation does not need the WiX Toolset installed.
+
+---
 
 ## Usage
 
-### Option 1: Run the PowerShell script directly
+### Option 1: Run the PowerShell Script Directly
 
 Clone the repository:
 
 ```powershell
 git clone <repository-url>
+
 cd onboarding-app-automation
 ```
 
@@ -251,7 +300,9 @@ The script retrieves the exact application list configured for that client.
 
 The script must be run with administrator privileges.
 
-### Option 2: Build the MSI package
+---
+
+### Option 2: Build the MSI Package
 
 The PowerShell script can be packaged into an MSI using WiX Toolset.
 
@@ -275,40 +326,122 @@ onboarding.msi
 
 is the deployment package.
 
-The MSI installs the PowerShell script and executes it as part of the installation process.
-
-This allows the onboarding automation to be deployed through endpoint-management software such as Atera.
-
-### MSI deployment workflow
+The MSI contains the PowerShell onboarding script and installs it to:
 
 ```text
-onboarding.ps1
-      │
-      ↓
-Package.wxs
-      │
-      ↓
-WiX Toolset + Util Extension
-      │
-      ↓
-onboarding.msi
-      │
-      ↓
-Endpoint Management
-      │
-      ↓
-Windows Workstation
-      │
-      ↓
-PowerShell Onboarding Script
-      │
-      ↓
-Application Installation
+C:\Program Files\OnboardingAppAutomation\
+```
+
+The MSI then launches the onboarding script automatically after the MSI installation transaction has completed.
+
+This design is important because the onboarding script may install other MSI-based applications such as Google Chrome, LibreOffice, and Egnyte.
+
+Launching the PowerShell script only after the parent MSI has completed prevents the child MSI installations from conflicting with the parent MSI transaction.
+
+---
+
+## MSI Deployment Workflow
+
+The final deployment architecture is:
+
+```text
+                    onboarding.ps1
+                          │
+                          ↓
+                     Package.wxs
+                          │
+                          ↓
+                    WiX Toolset
+                          │
+                          ↓
+                    onboarding.msi
+                          │
+                          ↓
+                 Endpoint Management
+                    (e.g. Atera)
+                          │
+                          ↓
+                  Windows Workstation
+                          │
+                          ↓
+              Install onboarding.ps1
+                          │
+                          ↓
+                 MSI installation ends
+                          │
+                          ↓
+            PowerShell launches separately
+                          │
+                          ↓
+              Windows Onboarding Script
+                          │
+                          ↓
+               Application Installation
 ```
 
 The MSI is therefore the deployment wrapper, while `onboarding.ps1` remains the main automation program.
 
+---
+
+## MSI Command-Line Usage
+
+The same `onboarding.msi` can be used for both standard and client-specific onboarding.
+
+### Standard Onboarding
+
+Run:
+
+```powershell
+msiexec /i "onboarding.msi" /qn
+```
+
+The MSI does not receive a client name, so the script uses:
+
+```powershell
+$StandardApps
+```
+
+### Client-Specific Onboarding
+
+For a client-specific configuration:
+
+```powershell
+msiexec /i "onboarding.msi" /qn CLIENTNAME=clientName
+```
+
+The MSI passes the `CLIENTNAME` property to the PowerShell script.
+
+The script then selects:
+
+```powershell
+$ClientApps["clientName"]
+```
+
+This means the same MSI package can be used for different clients.
+
+Only the deployment argument changes.
+
+### Endpoint-Management Deployment
+
+When deployed through an endpoint-management platform such as Atera, the same MSI can be used for multiple workstation configurations.
+
+Example:
+
+```text
+Standard workstation:
+ /qn
+
+Client-specific workstation:
+ /qn CLIENTNAME=clientName
+```
+
+The MSI package itself does not need to be rebuilt for each client as long as the client already exists in `$ClientApps`.
+
+---
+
 ## Project Structure
+
+The source repository contains the automation and packaging files:
 
 ```text
 onboarding-app-automation/
@@ -317,25 +450,48 @@ onboarding-app-automation/
 ├── Package.wxs
 ├── README.md
 ├── .gitignore
+└── onboarding.msi
+```
+
+The generated MSI package is a deployment artifact and may be excluded from source control depending on the project's repository policy.
+
+The PowerShell script automatically creates the following directories on the target workstation:
+
+```text
+C:\Program Files\OnboardingAppAutomation\
 │
-├── installers/
-│   └── downloaded installers are created automatically
+├── onboarding.ps1
+├── installers\
+└── logs\
+```
+
+The `installers\` directory contains downloaded application installers.
+
+The `logs\` directory contains onboarding execution logs.
+
+For example:
+
+```text
+C:\Program Files\OnboardingAppAutomation\
 │
-└── logs/
+├── onboarding.ps1
+│
+├── installers\
+│   ├── anydesk.exe
+│   ├── teamviewer.exe
+│   ├── chrome.exe
+│   ├── libreoffice.msi
+│   └── ...
+│
+└── logs\
     └── onboarding.log
 ```
 
-The `installers/` and `logs/` directories are created automatically by the script if they do not already exist.
+These directories do not need to be manually included with the MSI. They are created automatically when the onboarding script runs.
 
-Downloaded installers are stored locally in the `installers/` directory.
+Generated build and test files such as WiX symbols, CAB files, MSI test logs, and local WiX files should not be committed to the source repository.
 
-Installation activity is recorded in:
-
-```text
-logs/onboarding.log
-```
-
-Generated build and test files such as the MSI package, WiX symbols, CAB files, MSI test logs, and local WiX files should not be committed to the source repository.
+---
 
 ## How It Works
 
@@ -344,6 +500,10 @@ Generated build and test files such as the MSI package, WiX symbols, CAB files, 
 The script first checks whether PowerShell is running with administrator privileges.
 
 If administrator privileges are not detected, the script stops and asks the user to run it as Administrator.
+
+This is required because application installation and Windows system changes may require elevated privileges.
+
+---
 
 ### 2. Directory Setup
 
@@ -356,21 +516,42 @@ logs/
 
 if they do not already exist.
 
-The directories are created relative to the script location using `$PSScriptRoot`.
+The directories are created relative to the script location using:
+
+```powershell
+$PSScriptRoot
+```
+
+When deployed through the MSI, these directories are therefore created inside:
+
+```text
+C:\Program Files\OnboardingAppAutomation\
+```
+
+---
 
 ### 3. Application Catalog
 
 All supported applications are defined in the centralized `$Apps` hashtable.
 
-Each application contains its download URL, installer path, installer type, and installation arguments.
+Each application contains information such as:
 
-Optional properties, such as `ShortcutTarget`, can also be configured for applications that require desktop shortcuts.
+* Application name
+* Download URL
+* Installer output path
+* Installer type
+* Installation arguments
+* Optional shortcut target
+
+This allows the same installation functions to handle different applications.
+
+---
 
 ### 4. Client Selection
 
 The script determines which application list to use.
 
-If a client is provided:
+If a client is provided directly:
 
 ```powershell
 .\onboarding.ps1 clientName
@@ -388,11 +569,21 @@ If no client is provided, it uses:
 $StandardApps
 ```
 
+When launched through the MSI, the client can be passed through the `CLIENTNAME` MSI property.
+
+For example:
+
+```text
+CLIENTNAME=clientName
+```
+
+---
+
 ### 5. Installed Application Detection
 
-Before downloading anything, the script checks whether the application is already installed.
+Before downloading or installing an application, the script checks whether the application is already installed.
 
-If the application is detected, the script skips it:
+If the application is detected:
 
 ```text
 Application already installed
@@ -401,6 +592,10 @@ Application already installed
 ```
 
 This prevents unnecessary installation attempts.
+
+The script checks Windows application registration information through the uninstall registry locations.
+
+---
 
 ### 6. Installer Download
 
@@ -416,17 +611,19 @@ Installer already exists
 Use existing installer
 ```
 
-Otherwise, the installer is downloaded using `curl.exe`:
+Otherwise, the installer is downloaded using:
 
 ```powershell
 curl.exe -L $Url -o $Output
 ```
 
-This prevents the same installer from being downloaded repeatedly during subsequent runs.
+This prevents unnecessary duplicate downloads during repeated runs.
+
+---
 
 ### 7. Digital Signature Verification
 
-After downloading an installer, the script checks its Authenticode digital signature:
+After downloading an installer, the script checks its Authenticode digital signature using:
 
 ```powershell
 Get-AuthenticodeSignature
@@ -441,8 +638,12 @@ Example log output:
 ```text
 Verifying digital signature for LibreOffice...
 LibreOffice signature is valid.
-Signer: E=info@documentfoundation.org, CN=The Document Foundation...
+Signer: The Document Foundation
 ```
+
+This provides an additional validation step before executing downloaded installers.
+
+---
 
 ### 8. Installation
 
@@ -462,7 +663,11 @@ Example MSI installation:
 msiexec.exe /i installer.msi /qn /norestart
 ```
 
-The script waits for the installation process to finish before continuing to the next application, with application-specific handling where required.
+The script normally waits for the installation process to complete before continuing to the next application.
+
+Application-specific handling is used where an installer does not behave like a normal synchronous installer.
+
+---
 
 ### 9. Installation Result Handling
 
@@ -470,13 +675,70 @@ The script checks the installer's exit code after installation.
 
 Successful installations are recorded as successful.
 
-Exit code `3010` is treated as a successful installation where a restart is required.
+Exit code:
+
+```text
+0
+```
+
+is treated as a successful installation.
+
+Exit code:
+
+```text
+3010
+```
+
+is treated as a successful installation where a restart is required.
 
 Other non-zero exit codes are reported as installation failures.
 
-The script also verifies whether the application was successfully detected after the installer reports completion.
+The script also performs post-installation verification where application detection is available.
 
-### 10. Desktop Shortcut Creation
+---
+
+### 10. MSI Packaging and Execution
+
+The WiX package installs the PowerShell script into:
+
+```text
+C:\Program Files\OnboardingAppAutomation\
+```
+
+The MSI then launches PowerShell asynchronously after the MSI installation transaction has completed.
+
+This is intentional.
+
+Some applications installed by the onboarding script are themselves MSI packages.
+
+If the PowerShell script were executed while the parent `onboarding.msi` transaction was still active, Windows Installer could return:
+
+```text
+1618
+Another installation is already in progress.
+```
+
+The final MSI design avoids this nested Windows Installer conflict by allowing the parent MSI installation to complete before the onboarding script starts installing additional MSI packages.
+
+The result is:
+
+```text
+onboarding.msi
+      ↓
+Install onboarding.ps1
+      ↓
+Complete parent MSI transaction
+      ↓
+Launch PowerShell
+      ↓
+Install application MSIs
+```
+
+This behavior was tested locally with the onboarding MSI.
+
+---
+
+### 11. Desktop Shortcut Creation
 
 For applications with a configured `ShortcutTarget`, the script checks whether the target executable exists after installation.
 
@@ -484,14 +746,16 @@ If the executable is found, a desktop shortcut is created automatically.
 
 If the executable cannot be found, the shortcut is not created and the event is recorded in the log.
 
-This allows the script to handle applications differently depending on their installer behavior without requiring separate installation functions.
+This allows applications to have different post-installation behavior without requiring separate installation functions.
 
-### 11. Installation Logging
+---
+
+### 12. Installation Logging
 
 The script records important events in:
 
 ```text
-logs/onboarding.log
+C:\Program Files\OnboardingAppAutomation\logs\onboarding.log
 ```
 
 Log entries include timestamps and events such as:
@@ -506,7 +770,9 @@ Log entries include timestamps and events such as:
 [2026-09-23 02:07:43] TeamViewer installed successfully.
 ```
 
-The same messages are displayed in the PowerShell console while the script is running.
+The same general progress messages are displayed in the PowerShell console while the script is running.
+
+---
 
 ## Known Limitations
 
@@ -524,6 +790,7 @@ Example:
 
 ```text
 Waiting for Adobe Acrobat installation to finish...
+
 Adobe Acrobat installation timed out after 600 seconds.
 ```
 
@@ -531,52 +798,106 @@ The Acrobat installer should therefore be validated separately when changes are 
 
 > **Known limitation:** Adobe Acrobat's installer does not always behave like a normal synchronous installer. Its visible progress and underlying installation process may not finish at the same time.
 
+---
+
+### Application Installer Changes
+
+Application vendors may change:
+
+* Download URLs
+* Installer filenames
+* Installer versions
+* Silent-installation arguments
+* Installer behavior
+* Digital signatures
+* Installation locations
+
+The corresponding application configuration should therefore be tested whenever an installer source or version changes.
+
+---
+
+### Client Configuration
+
+Client configurations are currently defined inside the PowerShell script.
+
+Adding a new client requires modifying `$ClientApps` and rebuilding the MSI before the new client configuration is available through the packaged deployment.
+
+The project does not currently use a database or external API for application/client configuration.
+
+---
+
+### MSI Deployment Testing
+
+The MSI has been tested locally.
+
+Deployment through an endpoint-management platform such as Atera should still be tested on a controlled workstation before broader deployment.
+
+The final deployment should verify:
+
+* MSI installation
+* PowerShell execution
+* SYSTEM/elevated execution context
+* Application downloads
+* Application installations
+* Client-specific configuration
+* Installation logs
+* Desktop shortcut creation
+* Reboot-required behavior
+
+---
+
 ## Development Status
 
 ### Completed
 
-- [x] PowerShell project setup
-- [x] Application catalog
-- [x] Standard application list
-- [x] Client-specific application lists
-- [x] Automatic installer directory creation
-- [x] Automatic log directory creation
-- [x] Application download function
-- [x] Administrator privilege check
-- [x] EXE/MSI installer type configuration
-- [x] Installation function structure
-- [x] LibreOffice silent installation
-- [x] Chrome installation configuration
-- [x] AnyDesk installation configuration
-- [x] Adobe Acrobat Reader installation configuration
-- [x] TeamViewer installation configuration
-- [x] Egnyte installation configuration
-- [x] Already-installed application detection
-- [x] Duplicate-download prevention
-- [x] Digital signature verification
-- [x] Installation exit-code handling
-- [x] Installation verification
-- [x] Desktop shortcut creation
-- [x] Installation logging
-- [x] User output and progress messages
-- [x] WiX MSI packaging
-- [x] WiX Util extension integration
-- [x] MSI execution of the PowerShell onboarding script
-- [x] Local MSI installation testing
+* [x] PowerShell project setup
+* [x] Application catalog
+* [x] Standard application list
+* [x] Client-specific application lists
+* [x] Automatic installer directory creation
+* [x] Automatic log directory creation
+* [x] Application download function
+* [x] Administrator privilege check
+* [x] EXE/MSI installer type configuration
+* [x] Installation function structure
+* [x] LibreOffice installation configuration
+* [x] Chrome installation configuration
+* [x] AnyDesk installation configuration
+* [x] Adobe Acrobat Reader installation configuration
+* [x] TeamViewer installation configuration
+* [x] Egnyte installation configuration
+* [x] Already-installed application detection
+* [x] Duplicate-download prevention
+* [x] Digital signature verification
+* [x] Installation exit-code handling
+* [x] Installation verification
+* [x] Desktop shortcut creation
+* [x] Installation logging
+* [x] User output and progress messages
+* [x] WiX MSI packaging
+* [x] WiX Toolset Util extension integration
+* [x] Automatic PowerShell execution from the MSI
+* [x] MSI installation testing
+* [x] Client selection through MSI properties
+* [x] MSI architecture designed to avoid nested Windows Installer error `1618`
+* [x] Local testing of standard onboarding
+* [x] Local testing of client-specific onboarding
 
 ### Future Improvements
 
-- Support additional clients
-- Support additional applications
-- Application version management
-- Better installer validation
-- Optional application installation
-- Configuration separated into an external file
-- Improved error recovery
-- More detailed installation reports
-- Improve Adobe Acrobat installation completion detection
-- Improve MSI client-argument handling
-- Further testing through endpoint-management deployment
+* [ ] Support additional clients
+* [ ] Support additional applications
+* [ ] Application version management
+* [ ] Better installer validation
+* [ ] Optional application installation
+* [ ] External configuration file for applications and clients
+* [ ] Improved error recovery
+* [ ] More detailed installation reports
+* [ ] Improve Adobe Acrobat installation completion detection
+* [ ] Further testing through endpoint-management deployment
+* [ ] Centralized application/client configuration outside the PowerShell source
+
+---
 
 ## Design Approach
 
@@ -587,9 +908,9 @@ The project separates **configuration** from **automation logic**.
                         $Apps
                           │
                           ↓
-                ┌──────────────────┐
-                │ Client Selection │
-                └──────────────────┘
+                 ┌──────────────────┐
+                 │ Client Selection │
+                 └──────────────────┘
                           │
                  ┌────────┴────────┐
                  ↓                 ↓
@@ -608,7 +929,7 @@ The project separates **configuration** from **automation logic**.
                           ↓
                     Install-App
                           ↓
-              Verify Installation
+               Verify Installation
                           ↓
              Create Desktop Shortcut
                           ↓
@@ -636,36 +957,45 @@ For deployment, the PowerShell automation can be wrapped inside an MSI:
              Windows Workstation
 ```
 
-This approach separates the automation logic from the deployment package while allowing the same PowerShell script to be tested directly during development.
+This approach separates the automation logic from the deployment package while allowing the same PowerShell script to be tested directly during development and deployed through endpoint-management software.
+
+---
 
 ## Learning Resources
 
-This project was developed while learning Windows automation and PowerShell scripting.
+This project was developed while learning Windows automation, PowerShell scripting, MSI deployment, and endpoint-management concepts.
 
 The implementation uses concepts such as:
 
-- PowerShell functions
-- Parameters
-- Hashtables
-- Arrays
-- Conditional statements
-- Loops
-- `Start-Process`
-- `curl.exe`
-- `msiexec`
-- Exit codes
-- Windows Registry
-- Authenticode digital signatures
-- Windows administrator privileges
-- Command-line application installation
-- File and directory handling
-- Logging
-- Windows shortcut creation
-- WiX Toolset
-- WiX Toolset Util extension
-- MSI packaging
+* PowerShell functions
+* Parameters
+* Hashtables
+* Arrays
+* Conditional statements
+* Loops
+* `Start-Process`
+* `curl.exe`
+* `msiexec`
+* Windows Installer exit codes
+* Windows Registry
+* Authenticode digital signatures
+* Windows administrator privileges
+* SYSTEM execution context
+* Command-line application installation
+* File and directory handling
+* Logging
+* Windows shortcut creation
+* WiX Toolset
+* WiX Toolset Util extension
+* MSI packaging
+* MSI properties
+* Custom actions
+* Asynchronous MSI-launched processes
+* Endpoint-management deployment
 
 Official vendor documentation is used when determining supported installation and silent-installation methods for individual applications.
+
+---
 
 ## AI Assistance
 
@@ -673,19 +1003,28 @@ AI tools were used as a development and learning aid during the project.
 
 AI assistance was used to:
 
-- Explain PowerShell syntax and concepts
-- Discuss script structure and organization
-- Troubleshoot errors
-- Suggest maintainable configuration patterns
-- Explain Windows installation commands
-- Help investigate application installation methods
-- Review and improve the script structure
-- Assist with MSI packaging concepts
+* Explain PowerShell syntax and concepts
+* Discuss script structure and organization
+* Troubleshoot errors
+* Suggest maintainable configuration patterns
+* Explain Windows installation commands
+* Help investigate application installation methods
+* Review and improve the script structure
+* Assist with MSI packaging concepts
+* Troubleshoot WiX Toolset configuration
+* Investigate Windows Installer error `1618`
+* Explain MSI properties and deployment arguments
 
 The project was tested and adjusted manually to verify that the commands and implementation worked in the intended Windows environment.
+
+---
 
 ## Disclaimer
 
 This project is intended for internal IT onboarding and automation purposes.
 
-Application download URLs, installer behavior, application versions, and installation arguments may change when vendors release new versions. Installation methods should therefore be verified before deploying the script in a production environment.
+Application download URLs, installer behavior, application versions, installation arguments, and installation locations may change when vendors release new versions.
+
+Installation methods should therefore be verified before deploying the script in a production environment.
+
+The MSI package should also be tested on a controlled workstation before wider endpoint-management deployment.
